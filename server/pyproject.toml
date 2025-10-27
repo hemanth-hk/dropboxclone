@@ -8,5 +8,8 @@ dependencies = [
     "fastapi",
     "uvicorn[standard]",
     "sqlalchemy",
-    "python-multipart"
+    "python-multipart",
+    "bcrypt>=4.0.0",
+    "pyjwt>=2.8.0",
+    "pydantic-settings>=2.0.0"
 ]

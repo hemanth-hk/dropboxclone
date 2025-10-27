@@ -1,77 +1,62 @@
-from fastapi import Depends, FastAPI, HTTPException, status, Request
-from fastapi.security import HTTPBasic
-from fastapi.responses import JSONResponse
+"""FastAPI application entry point."""
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
 import uvicorn
-from sqlalchemy.orm import Session
-from database import get_db
-from schemas import UserCreate, UserResponse, TokenResponse
-from auth import authenticate_user, create_session, extract_basic_auth, get_current_user
-from crud import create_user, get_user_by_username, get_user_by_id
 
-app = FastAPI()
+from app.api import auth, files
+from app.db.database import init_db
+from app.core.config import settings
+from app.core.logging import setup_logging, get_logger
 
-
-@app.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def register(user: UserCreate, db: Session = Depends(get_db)):
-    """
-    Register a new user with username and password.
-    
-    Returns:
-        UserResponse: The created user object
-    """
-    # Check if user already exists
-    existing_user = get_user_by_username(db, user.username)
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username already registered"
-        )
-    
-    # Create new user
-    db_user = create_user(db, user)
-    return UserResponse(id=db_user.id, username=db_user.username)
+# Setup logging first
+setup_logging()
+logger = get_logger(__name__)
 
 
-@app.post("/token", response_model=TokenResponse)
-def token(
-    request: Request,
-    db: Session = Depends(get_db)
-):
-    """
-    Authenticate user using Basic Auth and return a session token.
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup and shutdown events."""
+    # Startup
+    logger.info("Starting application...")
+    init_db()
+    settings.uploads_path.mkdir(parents=True, exist_ok=True)
+    logger.info(f"✓ Database initialized: {settings.DATABASE_URL}")
+    logger.info(f"✓ Uploads directory: {settings.uploads_path.absolute()}")
+    logger.info(f"✓ Server running on {settings.HOST}:{settings.PORT}")
     
-    Returns:
-        TokenResponse: Session token and message
-    """
-    # Get authorization header
-    auth_header = request.headers.get("Authorization")
-    if not auth_header:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing Authorization header",
-            headers={"WWW-Authenticate": "Basic"},
-        )
+    yield
     
-    # Extract username and password from Basic Auth
-    username, password = extract_basic_auth(auth_header)
-    
-    # Authenticate user
-    user = authenticate_user(username, password, db)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    
-    # Create session and generate token
-    token = create_session(user.id, db)
-    
-    return TokenResponse(
-        token=token,
-        message="Authentication successful"
-    )
+    # Shutdown
+    logger.info("Shutting down application...")
+
+
+app = FastAPI(
+    title=settings.APP_NAME,
+    version=settings.APP_VERSION,
+    lifespan=lifespan,
+    description="A RESTful API for file storage and management with JWT authentication"
+)
+
+# Include routers
+app.include_router(auth.router)
+app.include_router(files.router)
+
+
+@app.get("/", tags=["Health"])
+def root():
+    """Root endpoint - API health check."""
+    return {
+        "status": "online",
+        "app": settings.APP_NAME,
+        "version": settings.APP_VERSION,
+        "docs": "/docs",
+        "redoc": "/redoc"
+    }
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="localhost", port=8080)
+    uvicorn.run(
+        app,
+        host=settings.HOST,
+        port=settings.PORT
+    )
