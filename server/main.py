@@ -1,6 +1,7 @@
 """FastAPI application entry point."""
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 from app.api import auth, files
@@ -35,6 +36,15 @@ app = FastAPI(
     version=settings.APP_VERSION,
     lifespan=lifespan,
     description="A RESTful API for file storage and management with JWT authentication"
+)
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:3001"],  # Frontend URLs
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Include routers
